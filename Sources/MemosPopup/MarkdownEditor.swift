@@ -57,6 +57,16 @@ final class ImageTextView: NSTextView {
     var onError: ((String) -> Void)?
     var onSubmit: (() -> Void)?
     var onEscape: (() -> Void)?
+    weak var tagCompletion: TagCompletionController?
+    override func keyDown(with event: NSEvent) {
+        if tagCompletion?.handle(event, in: self) == true { return }
+        super.keyDown(with: event)
+        tagCompletion?.update(in: self)
+    }
+    override func didChangeText() {
+        super.didChangeText()
+        tagCompletion?.update(in: self)
+    }
     override func paste(_ sender: Any?) {
         guard isEditable else { return }
         if ImageImport.pasteboard(imagePasteboard, receive: { [weak self] in self?.receiveImage?($0, $1, $2) }, fail: { [weak self] in self?.onError?($0) }) { return }
@@ -75,7 +85,9 @@ final class ImageTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
     override func cancelOperation(_ sender: Any?) {
-        if hasMarkedText() { super.cancelOperation(sender) } else { onEscape?() }
+        if hasMarkedText() { super.cancelOperation(sender) }
+        else if let tagCompletion, !tagCompletion.suggestions.isEmpty { tagCompletion.dismiss() }
+        else { onEscape?() }
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard isEditable else { return [] }
@@ -108,6 +120,8 @@ struct MarkdownEditor: NSViewRepresentable {
     @Binding var text: String
     var enabled = true
     var autofocus = false
+    var completion: TagCompletionController? = nil
+    var tags: [String] = []
     var onImage: (Data, String, String) -> Void
     var onError: (String) -> Void
     var onSubmit: () -> Void
@@ -154,12 +168,26 @@ struct MarkdownEditor: NSViewRepresentable {
         if view.string != text && !view.hasMarkedText() { view.string = text }
         view.isEditable = enabled
         view.receiveImage = onImage; view.onError = onError; view.onSubmit = onSubmit; view.onEscape = onEscape
+        view.tagCompletion = completion
+        completion?.tags = tags
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            if view.window?.firstResponder === view { view.tagCompletion?.update(in: view) }
+            else { view.tagCompletion?.hide() }
+        }
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MarkdownEditor
         init(_ parent: MarkdownEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) {
             if let view = notification.object as? NSTextView { parent.text = view.string }
+        }
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let view = notification.object as? ImageTextView else { return }
+            DispatchQueue.main.async { [weak view] in
+                guard let view, view.window?.firstResponder === view else { return }
+                view.tagCompletion?.update(in: view)
+            }
         }
     }
 }

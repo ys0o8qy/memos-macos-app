@@ -24,13 +24,21 @@ struct ComposerView: View {
                         .foregroundStyle(.tertiary).font(.system(size: 15)).padding(.horizontal, 17).padding(.top, 14)
                         .allowsHitTesting(false)
                 }
-                MarkdownEditor(text: $app.draft.content, enabled: !app.isSaving && !app.isConnecting && app.storageError == nil,
-                    autofocus: true, onImage: app.addImage,
+                TaggedMarkdownEditor(text: $app.draft.content, catalog: app.tagCatalog,
+                    enabled: !app.isSaving && !app.isConnecting && app.storageError == nil,
+                    autofocus: true, height: 220, onImage: app.addImage,
                     onError: { app.composerError = $0 }, onSubmit: { Task { await app.submit() } }, onEscape: close)
-            }.frame(height: 220).background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+            }.background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
             LocalImages(images: app.draft.images, store: app.drafts, remove: app.removeImage).disabled(app.isSaving)
             if let error = app.storageError ?? app.composerError { ErrorNotice(message: error) }
+            if app.storageError == nil, let failure = app.saveFailure, app.composerError == failure.message, !app.isSaving {
+                switch failure.action {
+                case .settings: Button("打开连接设置") { app.onSettings?() }
+                case .library: Button("查看所有记录") { app.onLibrary?() }
+                case .retry: Button("重试保存") { Task { await app.submit() } }.disabled(!app.canWrite)
+                }
+            }
             if app.api == nil {
                 HStack {
                     Text("草稿会保留在这台 Mac 上。")
@@ -42,11 +50,11 @@ struct ComposerView: View {
                 Button { ImageImport.choose(receive: app.addImage, fail: { app.composerError = $0 }) } label: {
                     Image(systemName: "photo.badge.plus")
                 }.buttonStyle(.plain).help("添加图片，也可以直接粘贴或拖入").disabled(app.isSaving)
-                Text(app.isSaving ? "正在保存…" : "Markdown · #标签 · 粘贴图片")
+                Text(app.isSaving ? app.saveStatus : "Markdown · #标签 · 粘贴图片")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if app.isSaving { ProgressView().controlSize(.small) }
-                Button("保存") { Task { await app.submit() } }
+                Button(app.isSaving ? "保存中…" : "保存") { Task { await app.submit() } }
                     .buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command)
                     .disabled(!app.canWrite || !app.draft.hasContent || app.isSaving)
             }

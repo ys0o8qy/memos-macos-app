@@ -4,21 +4,28 @@
 
 - macOS 14+，SwiftUI + AppKit，无第三方运行时依赖。
 - 对接 **Memos v0.30.0**，服务地址 + Personal Access Token 连接。
-- Markdown 源文编辑、基础 Markdown 预览、`#标签`。
+- Markdown 源文编辑、基础 Markdown 预览、`#标签` 补全（含中文与嵌套标签）。
 - 图片粘贴、拖入和文件选择；提交前预览、移除，支持纯图片记录。单张图片上限 20 MB，仍受服务端上传限制。
 - 新记录固定私有；修改已有记录保留原可见性。
 - 文字和图片草稿自动保留；收起、关闭窗口或重启后恢复。离线后手动重试。
 - 当前账号的记录列表、服务端搜索、分页、刷新、编辑与图片查看。
 - 可自定义全局唤起快捷键（默认 `Control Option M`），保存 `Command Enter`，编辑保存 `Command S`，收起 `Esc`。
+- 可选登录时启动；保存阶段与结果反馈，成功提示不抢焦点。
 - GitHub PR 自动测试、生成 Universal DMG、上传下载产物。
 
 ## 使用
 
-打开 `dist/Memos.app`，填写服务地址及 Token，点击“验证并保存”。Token 在你的 Memos 网页设置中创建。主窗口关闭后应用仍驻留菜单栏；退出入口在浮窗的“更多”菜单。
+打开 `dist/Memos.app`，填写服务地址及 Token，点击“验证并保存”。Token 在你的 Memos 网页设置中创建。主窗口关闭后应用仍驻留菜单栏；左键点击图标打开/收起浮窗，右键（或 `Control` 点击）打开菜单，可查看所有记录、打开连接设置或退出 Memos。退出入口也保留在浮窗的“更多”菜单。正在提交时会提示等待保存完成，避免中断提交。
 
 在连接设置中勾选“使用全局快捷键”，点击当前组合后直接按下新组合键即可保存。组合需要包含 `Command`、`Control` 或 `Option` 中至少一个；`Esc`、点击别处或切换窗口取消录入。“恢复默认”还原为 `Control Option M`。录入期间暂停旧快捷键，取消或注册冲突后恢复原设置；设置重启后保留。
 
 浮窗打开后可直接输入，空编辑器会显示插入光标。复制截图或图片后在输入框按 `Command V`，图片作为附件显示在下方，不替换现有文字；支持 PNG、TIFF、JPEG 等系统图片剪贴板表示。
+
+在连接设置中开启“登录时启动 Memos”，下次登录后应用驻留菜单栏，默认不自动启用。请先将应用安装到 Applications；若显示“尚未生效”，使用旁边的入口到系统登录项设置允许启动。开关和提示以系统实际状态为准。
+
+输入 `#` 后显示当前账号最常用的最多 5 个匹配标签；继续输入可筛选，`↑` / `↓` 选择，`Enter` / `Tab` 或点击候选补全。第一次 `Esc` 关闭候选，再按一次收起浮窗；`Command Enter` 仍用于保存。中文输入法组合期间不接管补全按键。标签来自账号统计接口，按账号缓存，打开编辑器时后台刷新，离线时仍可使用已缓存标签。支持浮窗与列表编辑器。
+
+保存期间显示“正在上传图片 x/n…”或“正在保存…”，禁止重复提交。服务端确认成功且本地草稿清理完成后收起浮窗，菜单栏下显示约 1.5 秒的“已保存到 Memos”，不会抢焦点。失败时保留内容，提供重试或更新 Token 的入口；如果提交期间已收起浮窗，则显示简短失败提示，详情保留在浮窗。服务器已保存但本地清理失败时会明确提示先查看所有记录。
 
 从 PR 下载：打开 PR 的 **Checks → Build macOS DMG → Summary → Artifacts**，下载 `Memos-DMG-…`，解压后打开 DMG，将应用拖入 Applications。
 
@@ -74,11 +81,13 @@ ARCHS=arm64 CONFIGURATION=debug bash scripts/build-app.sh
 - 对 API 重定向不自动跟随；外部附件 URL 不携带 Memos Token。
 - 允许 HTTP 地址以支持局域网自建服务；跨公网建议配置 HTTPS。
 
-第一版没有后台离线上传、自动更新、开机启动、多账号同时登录。预览支持标题、列表、任务项和行内 Markdown；复杂表格、代码块及正文内的远程图片尚未完整渲染，原始 Markdown 会原样保存。
+第一版没有后台离线上传、自动更新、多账号同时登录。预览支持标题、列表、任务项和行内 Markdown；复杂表格、代码块及正文内的远程图片尚未完整渲染，原始 Markdown 会原样保存。
+
+后续常用浮窗功能的分析与建议优先级见 [Popup 功能规划](docs/POPUP_ROADMAP.md)，文档区分已完成项目与待补充建议。
 
 ## 测试与手工验证
 
-27 项自动测试覆盖：认证错误、URL/CEL 编码、账号过滤与分页、默认私有、编辑字段范围、图片 Base64 上传、重复请求恢复、附件认证边界、草稿恢复与隔离、坏文件保护、离线恢复、编辑冲突、原生编辑器 Command V 图片粘贴和持久化、PNG/TIFF/JPEG 剪贴板兼容、空编辑器聚焦尺寸、快捷键迁移与持久化、取消录入与冲突回退、Carbon 实际注册/释放，以及原生界面离屏渲染。
+38 项 Swift 自动测试覆盖：认证错误、URL/CEL 编码、账号过滤与分页、默认私有、编辑字段范围、图片 Base64 上传、重复请求恢复、附件认证边界、草稿恢复与隔离、坏文件保护、离线恢复、编辑冲突、原生编辑器 Command V 图片粘贴和持久化、PNG/TIFF/JPEG 剪贴板兼容、空编辑器聚焦尺寸、快捷键迁移与持久化、取消录入与冲突回退、Carbon 实际注册/释放，以及原生界面离屏渲染。新增覆盖登录项待批准/错误/外部状态变更、账号标签缓存与过期请求隔离、保存后的标签刷新、补全与撤销及输入法组合、重复提交保护、图片上传阶段反馈、不激活提示窗和空闲时无重复视图更新。另有 7 项脚本测试。
 
 本地合成服务方便手工验证，不接触真实账号：
 
@@ -103,3 +112,5 @@ open -n dist/Memos.app --args --ui-testing --test-server http://127.0.0.1:18741
 | `.github/workflows` | PR 自动打包 |
 
 接口依据：[v0.30.0 官方发布](https://github.com/usememos/memos/releases/tag/v0.30.0)、[Memo 协议](https://github.com/usememos/memos/blob/v0.30.0/proto/api/v1/memo_service.proto)、[Attachment 协议](https://github.com/usememos/memos/blob/v0.30.0/proto/api/v1/attachment_service.proto)、[认证协议](https://github.com/usememos/memos/blob/v0.30.0/proto/api/v1/auth_service.proto)。
+
+新增功能接口依据：[Apple SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice)、[Memos v0.30 用户统计接口](https://github.com/usememos/memos/blob/v0.30.0/proto/api/v1/user_service.proto)。

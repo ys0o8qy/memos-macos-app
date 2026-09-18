@@ -7,7 +7,7 @@
 | 场景 | 命令 | 范围 |
 |---|---|---|
 | 文档、脚本、工作流修改 | `python3 scripts/validate.py quick` | 空白检查、Shell/Python/YAML/plist 语法、7 项脚本测试 |
-| Swift 逻辑或界面修改 | `python3 scripts/validate.py test` | 上述检查 + 27 项 Swift 测试 |
+| Swift 逻辑或界面修改 | `python3 scripts/validate.py test` | 上述检查 + 38 项 Swift 测试 |
 | 需要本地可安装交付物 | `python3 scripts/validate.py package` | 检查、测试、Universal app、DMG、校验和；应用只构建一次 |
 | 快速本机 UI 迭代 | `ARCHS="$(uname -m)" CONFIGURATION=debug bash scripts/build-app.sh` | 只编译本机架构的 Debug 应用 |
 | 推送 PR 后获取已验证安装包 | `python3 scripts/ci_artifact.py --wait` | 等待当前 HEAD 的 PR 构建、下载、核对来源、验证 DMG |
