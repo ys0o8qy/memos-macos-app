@@ -27,6 +27,12 @@ enum ImageImport {
            let png = bitmap.representation(using: .png, properties: [:]) {
             receive(png, "粘贴图片.png", "image/png"); return true
         }
+        // Some browsers and image apps offer JPEG/HEIC or an NSImage representation,
+        // without public.png / public.tiff on the pasteboard.
+        if let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) {
+            receive(png, "粘贴图片.png", "image/png"); return true
+        }
         return false
     }
 
@@ -45,17 +51,24 @@ enum ImageImport {
 }
 
 final class ImageTextView: NSTextView {
+    // Kept injectable so tests exercise the actual paste command using an isolated pasteboard.
+    var imagePasteboard: NSPasteboard = .general
     var receiveImage: ((Data, String, String) -> Void)?
     var onError: ((String) -> Void)?
     var onSubmit: (() -> Void)?
     var onEscape: (() -> Void)?
     override func paste(_ sender: Any?) {
         guard isEditable else { return }
-        if ImageImport.pasteboard(.general, receive: { [weak self] in self?.receiveImage?($0, $1, $2) }, fail: { [weak self] in self?.onError?($0) }) { return }
+        if ImageImport.pasteboard(imagePasteboard, receive: { [weak self] in self?.receiveImage?($0, $1, $2) }, fail: { [weak self] in self?.onError?($0) }) { return }
         super.pasteAsPlainText(sender)
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && event.keyCode == 36 {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "v" {
+            paste(nil)
+            return true
+        }
+        if modifiers == .command && event.keyCode == 36 {
             if !hasMarkedText() { onSubmit?() }
             return true
         }
@@ -77,6 +90,20 @@ final class ImageTextView: NSTextView {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
 }
 
+final class EditorScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        guard let editor = documentView as? NSTextView else { return }
+        // An empty NSTextView initialized with .zero can focus but clip its insertion caret.
+        // Keep the document at least as tall as the viewport, while allowing longer text to scroll.
+        let viewport = contentSize
+        editor.minSize = NSSize(width: 0, height: viewport.height)
+        if editor.frame.width != viewport.width || editor.frame.height < viewport.height {
+            editor.setFrameSize(NSSize(width: viewport.width, height: max(editor.frame.height, viewport.height)))
+        }
+    }
+}
+
 struct MarkdownEditor: NSViewRepresentable {
     @Binding var text: String
     var enabled = true
@@ -88,7 +115,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = EditorScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let view = ImageTextView(frame: .zero)
@@ -100,12 +127,15 @@ struct MarkdownEditor: NSViewRepresentable {
         view.isAutomaticTextReplacementEnabled = false
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.autoresizingMask = [.width]
         view.textContainer?.widthTracksTextView = true
         view.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         view.textContainerInset = NSSize(width: 12, height: 14)
         view.font = .systemFont(ofSize: 15)
         view.textColor = .labelColor
+        view.insertionPointColor = .controlAccentColor
+        view.isSelectable = true
         view.drawsBackground = false
         view.setAccessibilityLabel("记录内容")
         view.delegate = context.coordinator

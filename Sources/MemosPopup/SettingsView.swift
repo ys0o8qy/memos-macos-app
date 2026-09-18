@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var error: String?
     @State private var success: String?
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 14) {
                 Image(systemName: "square.and.pencil").font(.system(size: 30)).foregroundStyle(Theme.accent)
@@ -46,7 +47,7 @@ struct SettingsView: View {
                     .disabled(app.isConnecting || app.anySaving || address.isEmpty)
             }
             Divider()
-            Toggle("使用全局快捷键 ⌃ ⌥ M 唤出记录浮窗", isOn: $app.shortcutEnabled).font(.callout)
+            ShortcutSettings(controller: app.shortcuts)
             Text("关闭窗口后应用仍留在菜单栏。新记录默认私有，离线时保留草稿，联网后手动保存。")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -55,7 +56,8 @@ struct SettingsView: View {
                 Spacer()
                 Button("所有记录") { app.onLibrary?() }
             }
-        }.padding(30).frame(width: 480).tint(Theme.accent)
+        }.padding(30)
+        }.frame(width: 480, height: 640).tint(Theme.accent)
         .onAppear { address = app.connection?.address ?? "" }
         .disabled(app.isConnecting)
     }

@@ -90,6 +90,73 @@ final class AppTests: XCTestCase {
         XCTAssertFalse(ImageImport.pasteboard(board, receive: { _, _, _ in XCTFail("Text must not become an image") }, fail: { XCTFail($0) }))
     }
 
+    @MainActor func testCommandVPastesClipboardImageThroughEditorAndPersistsIt() async throws {
+        let root = try temp(); defer { try? FileManager.default.removeItem(at: root) }
+        let app = try app(root: root)
+        app.draft.content = "图片前的文字"
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let bytes = png()
+        board.setData(bytes, forType: .png)
+        let editor = ImageTextView()
+        editor.isEditable = true
+        editor.string = app.draft.content
+        editor.imagePasteboard = board
+        editor.receiveImage = app.addImage
+        editor.onError = { XCTFail($0) }
+        let commandV = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: 0, context: nil, characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9)!
+        XCTAssertTrue(editor.performKeyEquivalent(with: commandV))
+        XCTAssertEqual(app.draft.images.count, 1)
+        XCTAssertEqual(editor.string, "图片前的文字")
+        XCTAssertEqual(try app.drafts?.imageData(app.draft.images[0]), bytes)
+        XCTAssertEqual(try app.drafts?.load(key: "new")?.images, app.draft.images)
+        editor.isEditable = false
+        editor.paste(nil)
+        XCTAssertEqual(app.draft.images.count, 1)
+    }
+
+    @MainActor func testTIFFAndJPEGClipboardImagesAreAccepted() async throws {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let image = NSImage(data: png())!
+        let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
+        for (type, data) in [(NSPasteboard.PasteboardType.tiff, image.tiffRepresentation!),
+                             (NSPasteboard.PasteboardType("public.jpeg"), bitmap.representation(using: .jpeg, properties: [:])!)] {
+            board.clearContents(); board.setData(data, forType: type)
+            let editor = ImageTextView()
+            editor.isEditable = true; editor.imagePasteboard = board
+            var received: Data?
+            editor.receiveImage = { data, _, mime in received = data; XCTAssertEqual(mime, "image/png") }
+            editor.paste(nil)
+            XCTAssertNotNil(received)
+            XCTAssertNotNil(received.flatMap { NSImage(data: $0) })
+        }
+    }
+
+    @MainActor func testEmptyEditorHasVisibleInsertionAreaWhenFocused() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 220), styleMask: .borderless, backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: MarkdownEditor(text: .constant(""), onImage: { _, _, _ in }, onError: { _ in }, onSubmit: {}))
+        window.contentView = host
+        host.frame = NSRect(x: 0, y: 0, width: 400, height: 220)
+        host.layoutSubtreeIfNeeded()
+        func find(_ view: NSView) -> EditorScrollView? {
+            if let scroll = view as? EditorScrollView { return scroll }
+            return view.subviews.compactMap { find($0) }.first
+        }
+        let scroll = try XCTUnwrap(find(host))
+        scroll.layout()
+        let editor = try XCTUnwrap(scroll.documentView as? ImageTextView)
+        XCTAssertGreaterThan(editor.bounds.height, 30)
+        XCTAssertGreaterThanOrEqual(editor.bounds.height, scroll.contentSize.height)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
+        XCTAssertEqual(editor.insertionPointColor, NSColor.controlAccentColor)
+        window.contentView = nil
+    }
+
     @MainActor func testExternalEditConflictDoesNotOverwriteAndKeepsDraft() async throws {
         let root = try temp(); defer { try? FileManager.default.removeItem(at: root) }
         let app = try app(root: root)
@@ -132,7 +199,7 @@ final class AppTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 460), output: output.appendingPathComponent("composer.png"))
         try render(LibraryView(app: app), size: NSSize(width: 960, height: 640), output: output.appendingPathComponent("library.png"))
-        try render(SettingsView(app: app), size: NSSize(width: 480, height: 590), output: output.appendingPathComponent("settings.png"))
+        try render(SettingsView(app: app), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("settings.png"))
     }
 
     @MainActor private func render<V: View>(_ view: V, size: NSSize, output: URL) throws {

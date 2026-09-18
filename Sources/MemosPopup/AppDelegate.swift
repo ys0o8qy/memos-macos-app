@@ -11,7 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var library: NSWindow?
     private var settings: NSWindow?
     private var previousApp: NSRunningApplication?
-    private var hotkey: EventHotKeyRef?
     private var hotkeyHandler: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,9 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         store.onLibrary = { [weak self] in self?.showLibrary() }
         store.onCompose = { [weak self] in self?.showPopover() }
         store.onSaved = { [weak self] in self?.closePopover(restoreFocus: true) }
-        store.onShortcutChange = { [weak self] in self?.registerHotkey() }
         installHotkeyHandler()
-        registerHotkey()
+        store.shortcuts.start()
         if store.testing { showLibrary() }
         else if store.api == nil { showSettings() }
     }
@@ -48,8 +46,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
-        if let root = popover.contentViewController?.view, let editor = findEditor(root) {
-            root.window?.makeFirstResponder(editor)
+        focusComposer()
+    }
+    func popoverDidShow(_ notification: Notification) { focusComposer() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if popover.isShown { focusComposer() }
+    }
+    private func focusComposer() {
+        guard popover.isShown, let root = popover.contentViewController?.view, let window = root.window else { return }
+        root.layoutSubtreeIfNeeded()
+        if let editor = findEditor(root) {
+            window.makeKey()
+            window.makeFirstResponder(editor)
+            editor.needsDisplay = true
+            editor.scrollRangeToVisible(editor.selectedRange())
         }
     }
     private func findEditor(_ view: NSView) -> ImageTextView? {
@@ -82,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if settings == nil {
-            let window = makeWindow(title: "Memos · 连接设置", size: NSSize(width: 480, height: 580), resizable: false)
+            let window = makeWindow(title: "Memos · 连接设置", size: NSSize(width: 480, height: 640), resizable: false)
             window.contentViewController = NSHostingController(rootView: SettingsView(app: store))
             settings = window
         }
@@ -139,22 +149,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
     private func installHotkeyHandler() {
         var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var identifier = EventHotKeyID()
+            guard let event,
+                  GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                    nil, MemoryLayout<EventHotKeyID>.size, nil, &identifier) == noErr,
+                  identifier.signature == 0x4D454D4F, identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
             Task { @MainActor in AppDelegate.instance?.togglePopover() }
             return noErr
         }, 1, &type, nil, &hotkeyHandler)
-    }
-    private func registerHotkey() {
-        if let hotkey { UnregisterEventHotKey(hotkey); self.hotkey = nil }
-        guard store.shortcutEnabled else { return }
-        let status = RegisterEventHotKey(UInt32(kVK_ANSI_M), UInt32(controlKey | optionKey),
-            EventHotKeyID(signature: 0x4D454D4F, id: 1), GetApplicationEventTarget(), 0, &hotkey)
-        if status != noErr {
-            store.shortcutEnabled = false
-            let alert = NSAlert()
-            alert.messageText = "无法注册全局快捷键"
-            alert.informativeText = "⌃ ⌥ M 可能已被其他应用占用。你仍然可以点击菜单栏图标记录。"
-            alert.runModal()
-        }
     }
 }

@@ -22,12 +22,11 @@ final class AppStore: ObservableObject {
     @Published var isConnecting = false
     @Published var nextPage = ""
     @Published var search = ""
-    @Published var shortcutEnabled: Bool { didSet { if !testing { UserDefaults.standard.set(shortcutEnabled, forKey: "shortcutEnabled") }; onShortcutChange?() } }
+    let shortcuts: ShortcutController
     var onSettings: (() -> Void)?
     var onLibrary: (() -> Void)?
     var onCompose: (() -> Void)?
     var onSaved: (() -> Void)?
-    var onShortcutChange: (() -> Void)?
     var api: MemosAPI?
     var drafts: DraftStore?
     private var token = ""
@@ -42,7 +41,7 @@ final class AppStore: ObservableObject {
     init(testRoot: URL? = nil) {
         let args = ProcessInfo.processInfo.arguments
         testing = testRoot != nil || args.contains("--ui-testing")
-        shortcutEnabled = testing ? false : UserDefaults.standard.bool(forKey: "shortcutEnabled")
+        shortcuts = ShortcutController(defaults: testing ? nil : .standard)
         if testing {
             root = testRoot ?? URL(fileURLWithPath: ProcessInfo.processInfo.environment["MEMOS_TEST_DATA"] ?? "/tmp/memos-popup-ui-test", isDirectory: true)
         } else {
