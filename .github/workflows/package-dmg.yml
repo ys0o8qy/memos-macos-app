@@ -1,0 +1,78 @@
+name: Build macOS DMG
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dmg-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Test and package Universal DMG
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test
+        run: bash scripts/test.sh
+      - name: Build Apple Silicon and Intel app
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/build-app.sh
+      - name: Package and verify DMG
+        env:
+          SKIP_BUILD: '1'
+        run: bash scripts/package-dmg.sh
+      - name: Record build provenance
+        env:
+          BUILD_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          pathlib.Path('dist/BUILD_INFO.json').write_text(json.dumps({
+              'build_sha': os.environ['BUILD_SHA'],
+              'pr_head_sha': os.environ.get('PR_HEAD_SHA', ''),
+              'run_id': os.environ['RUN_ID'],
+              'architectures': ['arm64', 'x86_64'],
+              'minimum_macos': '14.0',
+              'signing': 'ad-hoc; not notarized',
+          }, indent=2) + '\n')
+          PY
+      - name: Upload DMG
+        id: upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Memos-DMG-${{ github.event.pull_request.number || 'branch' }}-${{ github.run_number }}
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+            dist/BUILD_INFO.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Build summary
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          {
+            echo '### Memos macOS build'
+            echo "[Download Universal DMG]($ARTIFACT_URL)"
+            echo ''
+            echo 'macOS 14+ · Apple Silicon + Intel · ad-hoc signed · not notarized'
+            echo ''
+            echo 'SHA-256 checksums and BUILD_INFO.json are included in the artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
