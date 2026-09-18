@@ -84,7 +84,7 @@ open -n dist/Memos.app --args --ui-testing --test-server http://127.0.0.1:18741
 
 测试数据分别位于 `/tmp/memos-popup-fixture/` 和 `/tmp/memos-popup-ui-test/`，测试模式不保存真实 Token 或连接设置。创建 `/tmp/memos-popup-fixture/fail-next` 文件可让下一次写请求失败，用于检查草稿保留。
 
-自动渲染只是布局冒烟测试，不能替代真实菜单栏、焦点、输入法和图片粘贴测试。本次未连接用户真实服务，也未在 GitHub 远程运行工作流；完整手工检查项目见 [验证记录](docs/VALIDATION.md)。
+自动渲染只是布局冒烟测试，不能替代真实菜单栏、焦点、输入法和图片粘贴测试。GitHub PR 自动测试与 DMG 打包已实际跑通，下载产物的 SHA-256 和镜像校验通过。尚未连接用户真实服务；完整验证结果与手工检查项目见 [验证记录](docs/VALIDATION.md)。
 
 ## 代码布局
 

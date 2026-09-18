@@ -11,6 +11,8 @@
 - 应用以完整 bundle 启动，向本地 HTTP 合成服务发出带当前账号过滤的列表请求。
 - 应用包 plist 检查与 ad-hoc 签名校验通过。
 - DMG 创建、镜像校验与 SHA-256 生成通过。
+- [PR #1](https://github.com/ys0o8qy/memos-macos-app/pull/1) 实际触发 `pull_request` 构建；[首次远程运行](https://github.com/ys0o8qy/memos-macos-app/actions/runs/35307035669) 的测试、Universal 编译、DMG 校验和产物上传全部通过。
+- 已下载该次远程产物 `Memos-DMG-1-1`，本机再次验证 SHA-256 和 `hdiutil verify` 均通过；`BUILD_INFO.json` 中的 PR head 为 `3d300688f5a8c4654b47926bedf5b4130c6ae984`，与构建时的 PR 提交一致。
 
 ## 尚未完成的真实环境验证
 
@@ -21,7 +23,7 @@
 - 与用户实际部署的 Memos v0.30.0、实际 Token 和图片存储配置联调。
 - 钥匙串的首次授权、重启后的读取、Token 过期及账号切换。
 - macOS 14 最低版本及真实 Intel Mac 上的运行。
-- GitHub PR 远程 runner 和下载后 Gatekeeper 提示。
+- 从浏览器下载后的 Gatekeeper 提示。
 
 ## 建议手工验收顺序
 
@@ -31,4 +33,4 @@
 4. 断网点击保存，确认内容保留；联网后手动重试，服务器只出现一条私有记录。
 5. 在列表搜索、分页、编辑文字/附件，确认网页端可见性和其他字段未变化。
 6. 在网页修改同一记录，再从 Mac 保存旧草稿，确认出现冲突提示。
-7. 新建 GitHub PR，在 Checks 中下载 Universal DMG，校验 SHA-256 后安装运行。
+7. 在 GitHub PR 的 Checks 中下载 Universal DMG，校验 SHA-256 后安装运行，确认 Gatekeeper 提示与首次启动行为。
