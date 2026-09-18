@@ -53,7 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if popover.isShown { focusComposer() }
     }
     private func focusComposer() {
-        guard popover.isShown, let root = popover.contentViewController?.view, let window = root.window else { return }
+        guard popover.isShown, let root = popover.contentViewController?.view, let window = root.window,
+              window.attachedSheet == nil else { return }
         root.layoutSubtreeIfNeeded()
         if let editor = findEditor(root) {
             window.makeKey()
@@ -155,7 +156,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                   GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                     nil, MemoryLayout<EventHotKeyID>.size, nil, &identifier) == noErr,
                   identifier.signature == 0x4D454D4F, identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
-            Task { @MainActor in AppDelegate.instance?.togglePopover() }
+            Task { @MainActor in
+                guard let app = AppDelegate.instance, app.store.shortcuts.enabled, !app.store.shortcuts.isRecording else { return }
+                app.togglePopover()
+            }
             return noErr
         }, 1, &type, nil, &hotkeyHandler)
     }
