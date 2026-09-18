@@ -1,0 +1,22 @@
+Memos for macOS · 0.1.0
+
+支持 macOS 14 及以上版本，Apple Silicon 与 Intel。
+
+1. 将 Memos.app 拖入 Applications（应用程序）。
+2. 打开 Memos，填写你的 Memos 服务地址和 Personal Access Token。
+3. 点击菜单栏的写作图标开始记录；图片可以直接粘贴或拖入。
+4. ⌘ Enter 保存，Esc 收起；本地草稿会自动保留。
+5. 从浮窗右上角打开所有记录或连接设置。
+6. 在连接设置中开启全局快捷键，点击当前组合并按下新组合即可自定义。
+   默认 Control Option M；Esc 取消录入，支持恢复默认，设置重启后保留。
+
+当前构建采用 ad-hoc 签名，未经 Apple 公证。
+从 GitHub 下载后，如 macOS 拦截打开，请在“系统设置 → 隐私与安全性”中
+对该应用选择“仍要打开”。不要关闭整个系统的 Gatekeeper。
+
+Token 保存在 macOS 钥匙串中。
+文字和图片草稿保存在 ~/Library/Application Support/MemosPopup/Drafts/。
+新记录固定为私有；编辑记录保留原有可见性。
+离线可以写草稿，联网后需手动提交，不自动后台上传。
+
+API 对接版本：Memos v0.30.0。
