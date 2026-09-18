@@ -21,7 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             button.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Memos 随手记")
             button.image?.isTemplate = true
             button.toolTip = "Memos · 随手记"
-            button.target = self; button.action = #selector(togglePopover)
+            button.target = self; button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
         popover.animates = true
@@ -35,6 +36,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         store.shortcuts.start()
         if store.testing { showLibrary() }
         else if store.api == nil { showSettings() }
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            closePopover(restoreFocus: false)
+            let menu = NSMenu()
+            menu.addItem(withTitle: "所有记录", action: #selector(showLibrary), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "连接设置…", action: #selector(showSettings), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "退出 Memos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q").target = NSApp
+            // Show a context menu without assigning statusItem.menu, which would also replace left-click behavior.
+            menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.minX, y: sender.bounds.minY), in: sender)
+        } else {
+            togglePopover()
+        }
     }
 
     @objc func togglePopover() {
