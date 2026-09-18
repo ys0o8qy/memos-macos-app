@@ -91,7 +91,7 @@ struct MemoDetail: View {
             }
             Divider()
             if editing {
-                MarkdownEditor(text: $editor.draft.content, enabled: !editor.isSaving && !editor.storageFailed,
+                TaggedMarkdownEditor(text: $editor.draft.content, catalog: app.tagCatalog, enabled: !editor.isSaving && !editor.storageFailed,
                     autofocus: true, onImage: editor.addImage, onError: { editor.error = $0 },
                     onSubmit: { Task { await editor.save() } })
                     .frame(minHeight: 180).background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
@@ -137,6 +137,7 @@ struct MemoDetail: View {
             }
         }.padding(26)
         .onAppear { if editor.draft.isModified { editing = true } }
+        .task { await app.refreshTags() }
     }
     private var visibility: String {
         switch editor.draft.originalMemo?.visibility {

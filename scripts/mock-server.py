@@ -52,6 +52,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(503)
         if path == 'auth/me':
             return self.respond(200, {'user': {'name': 'users/1', 'username': 'local-test', 'displayName': '本地测试'}})
+        if path == 'users/1:getStats':
+            counts = {}
+            for memo in state['memos'].values():
+                for tag in set(re.findall(r'(?<![\w/#\\])#([\w/-]+)', memo['content'])):
+                    counts[tag] = counts.get(tag, 0) + 1
+            return self.respond(200, {'name': 'users/1/stats', 'tagCount': counts})
         if path == 'memos' and self.command == 'GET':
             assert 'creator == "users/1"' in query.get('filter', [''])[0]
             memos = list(state['memos'].values())

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     let store = AppStore()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private let saveFeedback = SaveFeedbackController()
     private var library: NSWindow?
     private var settings: NSWindow?
     private var previousApp: NSRunningApplication?
@@ -31,7 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         store.onSettings = { [weak self] in self?.showSettings() }
         store.onLibrary = { [weak self] in self?.showLibrary() }
         store.onCompose = { [weak self] in self?.showPopover() }
-        store.onSaved = { [weak self] in self?.closePopover(restoreFocus: true) }
+        store.onSaved = { [weak self] in
+            guard let self else { return }
+            self.closePopover(restoreFocus: true)
+            if let button = self.statusItem.button { self.saveFeedback.show(below: button) }
+        }
+        store.onSaveFailed = { [weak self] in
+            guard let self, !self.popover.isShown, let button = self.statusItem.button else { return }
+            self.saveFeedback.show(below: button, message: "保存未完成，请打开 Memos 查看", success: false)
+        }
         installHotkeyHandler()
         store.shortcuts.start()
         if store.testing { showLibrary() }
@@ -41,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            saveFeedback.dismiss()
             closePopover(restoreFocus: false)
             let menu = NSMenu()
             menu.addItem(withTitle: "所有记录", action: #selector(showLibrary), keyEquivalent: "").target = self
@@ -58,12 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if popover.isShown { closePopover(restoreFocus: true) } else { showPopover() }
     }
     func showPopover() {
+        saveFeedback.dismiss()
         guard let button = statusItem.button else { return }
         if !popover.isShown { previousApp = NSWorkspace.shared.frontmostApplication }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         focusComposer()
+        Task { await store.refreshTags() }
     }
     func popoverDidShow(_ notification: Notification) { focusComposer() }
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -94,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         previousApp = nil
     }
     @objc func showLibrary() {
+        saveFeedback.dismiss()
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if library == nil {
@@ -107,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         Task { await store.refresh() }
     }
     @objc func showSettings() {
+        saveFeedback.dismiss()
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if settings == nil {
