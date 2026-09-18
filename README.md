@@ -26,6 +26,8 @@
 
 ## 本地构建
 
+统一入口与耗时优化见 [开发流程](docs/DEVELOPMENT.md)：日常运行 `python3 scripts/validate.py test`；需要完整安装包时运行 `python3 scripts/validate.py package`；推送后运行 `python3 scripts/ci_artifact.py --wait` 自动验收当前提交的远程产物。
+
 安装 Xcode 或兼容的 Command Line Tools。脚本优先使用 `/Applications/Xcode.app`；可以通过 `DEVELOPER_DIR` 指定其他 Xcode。
 
 ```bash
@@ -51,11 +53,11 @@ ARCHS=arm64 CONFIGURATION=debug bash scripts/build-app.sh
 
 [工作流](.github/workflows/package-dmg.yml) 在 PR 新建/更新/重新打开、推送 `main` 或版本标签，以及手动触发时运行：
 
-1. `swift test`：接口、存储、应用状态与原生视图冒烟测试。
+1. `python3 scripts/validate.py package` 统一入口：脚本检查及测试、Swift 接口/存储/应用状态/原生视图测试。
 2. 分别编译 `arm64` / `x86_64`，合并为 Universal app。
 3. 生成应用图标、ad-hoc 签名、验证签名和最低系统版本。
 4. 创建 DMG，运行 `hdiutil verify` 并生成 SHA-256。
-5. 上传 DMG、校验文件及 `BUILD_INFO.json`，保留 14 天，任务摘要包含下载链接。
+5. 上传 DMG、校验文件、`BUILD_INFO.json` 和 `BUILD_TIMINGS.json`，保留 14 天，任务摘要包含下载链接及各阶段耗时。
 
 工作流只需 `contents: read`，无 Token/证书 Secrets，不使用 `pull_request_target`，支持 fork PR。不自动发布 Release、不自动评论 PR。需要该仓库启用 GitHub Actions；新贡献者的 fork PR 可能需要维护者批准运行。
 

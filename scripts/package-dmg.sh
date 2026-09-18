@@ -4,7 +4,13 @@ cd "$(dirname "$0")/.."
 [[ "${SKIP_BUILD:-0}" == 1 ]] || bash scripts/build-app.sh
 [[ -d dist/Memos.app ]] || { echo 'Missing dist/Memos.app' >&2; exit 1; }
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Memos.app/Contents/Info.plist)"
-label="${ARTIFACT_LABEL:-universal}"
+actual_architectures="$(lipo -archs dist/Memos.app/Contents/MacOS/MemosPopup)"
+case "$actual_architectures" in
+  *arm64*x86_64*|*x86_64*arm64*) default_label=universal ;;
+  arm64|x86_64) default_label="$actual_architectures" ;;
+  *) echo 'Unexpected app architectures' >&2; exit 1 ;;
+esac
+label="${ARTIFACT_LABEL:-$default_label}"
 [[ "$label" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo 'Invalid artifact label' >&2; exit 1; }
 stage="$(mktemp -d "$PWD/.build/dmg-stage.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
