@@ -4,77 +4,121 @@ struct ComposerView: View {
     @ObservedObject var app: AppStore
     var close: () -> Void
     var compact = true
+    @State private var previewing = false
+    private var canEdit: Bool { !app.isSaving && !app.isConnecting && app.storageError == nil }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 9) {
-                Image(systemName: "square.and.pencil").font(.title3).foregroundStyle(Theme.accent)
-                Text(compact ? "随手记" : "新的记录").font(compact ? .headline : .title2.weight(.semibold))
+        VStack(spacing: 0) {
+            header
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                if !compact {
+                    Text(Date.now, format: .dateTime.month(.wide).day().weekday(.wide))
+                        .font(.system(size: 23, weight: .semibold)).padding(.horizontal, 24).padding(.top, 24)
+                }
+                if previewing {
+                    ScrollView {
+                        MarkdownPreview(content: app.draft.content).padding(24)
+                            .frame(maxWidth: 680, alignment: .leading).frame(maxWidth: .infinity)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ZStack(alignment: .topLeading) {
+                        if app.draft.content.isEmpty {
+                            Text("写下此刻的想法…").font(.system(size: 15)).foregroundStyle(.tertiary)
+                                .padding(.leading, 17).padding(.top, 14).allowsHitTesting(false)
+                        }
+                        TaggedMarkdownEditor(text: $app.draft.content, catalog: app.tagCatalog,
+                            enabled: canEdit, autofocus: true, onImage: app.addImage,
+                            onError: { app.composerError = $0 }, onSubmit: save, onEscape: close)
+                    }.padding(.horizontal, compact ? 8 : 12).padding(.top, compact ? 4 : 14)
+                        .frame(minHeight: 120, maxHeight: .infinity)
+                }
+                if !app.draft.images.isEmpty || app.storageError != nil || app.composerError != nil || app.api == nil {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            if !app.draft.images.isEmpty {
+                                LocalImages(images: app.draft.images, store: app.drafts, remove: app.removeImage)
+                                    .padding(.horizontal, 20).disabled(!canEdit || previewing)
+                            }
+                            feedback.padding(.horizontal, 20)
+                        }
+                    }.frame(maxHeight: compact ? 150 : 190)
+                }
+            }.background(Theme.paper)
+            Divider()
+            footer
+        }
+        .frame(width: compact ? 440 : nil, height: compact ? 420 : nil)
+        .frame(maxWidth: compact ? nil : .infinity, maxHeight: compact ? nil : .infinity)
+        .background(Theme.paper).tint(Theme.accent)
+        .task { await app.refreshTags() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            if compact {
+                Button(action: close) { Image(systemName: "xmark") }.buttonStyle(.plain)
+                    .help("收起，保留草稿（Esc）").accessibilityLabel("收起快速记录")
                 Spacer()
-                Label("仅自己可见", systemImage: "lock").font(.caption).foregroundStyle(.secondary)
-                if compact { Button { app.onLibrary?() } label: { Image(systemName: "list.bullet.rectangle") }.buttonStyle(.plain).help("所有记录") }
-                Menu {
-                    Button("连接设置…") { app.onSettings?() }
-                    Button("所有记录") { app.onLibrary?() }
-                    Divider()
-                    Button("退出 Memos") { NSApp.terminate(nil) }
-                } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize().help("更多")
+                Text(Date.now, format: .dateTime.month().day().weekday(.abbreviated)).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                Label("新记录", systemImage: "square.and.pencil").font(.system(size: 13, weight: .medium))
+                Spacer()
             }
-            VStack(alignment: .leading, spacing: 5) {
-                Text(Date.now, format: .dateTime.year().month(.wide).day().weekday(.wide))
-                    .font(compact ? .subheadline : .title.weight(.medium))
-                Text(app.draft.hasContent ? "继续记录你的此刻" : "今天，有什么值得记住？")
-                    .font(.caption).foregroundStyle(.secondary)
-            }.padding(.vertical, compact ? 0 : 12)
-            ZStack(alignment: .topLeading) {
-                if app.draft.content.isEmpty {
-                    Text("此刻有什么想记下来的？")
-                        .foregroundStyle(.tertiary).font(.system(size: 15)).padding(.horizontal, 17).padding(.top, 14)
-                        .allowsHitTesting(false)
-                }
-                TaggedMarkdownEditor(text: $app.draft.content, catalog: app.tagCatalog,
-                    enabled: !app.isSaving && !app.isConnecting && app.storageError == nil,
-                    autofocus: true, height: compact ? 200 : nil, onImage: app.addImage,
-                    onError: { app.composerError = $0 }, onSubmit: { Task { await app.submit(showMenuBarFeedback: compact) } }, onEscape: close)
-            }.frame(minHeight: compact ? 200 : 140, maxHeight: compact ? 200 : .infinity)
-                .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
-            LocalImages(images: app.draft.images, store: app.drafts, remove: app.removeImage).disabled(app.isSaving)
-            if let error = app.storageError ?? app.composerError { ErrorNotice(message: error) }
-            if app.storageError == nil, let failure = app.saveFailure, app.composerError == failure.message, !app.isSaving {
-                switch failure.action {
-                case .settings: Button("打开连接设置") { app.onSettings?() }
-                case .library: Button("查看所有记录") { app.onLibrary?() }
-                case .retry: Button("重试保存") { Task { await app.submit(showMenuBarFeedback: compact) } }.disabled(!app.canWrite)
-                }
+            Button { previewing.toggle() } label: { Image(systemName: previewing ? "pencil" : "eye") }
+                .buttonStyle(.plain).help(previewing ? "继续编辑" : "预览 Markdown").accessibilityLabel(previewing ? "继续编辑" : "预览 Markdown")
+            if compact {
+                Button { app.continueDraftInLibrary() } label: { Image(systemName: "rectangle.on.rectangle") }
+                    .buttonStyle(.plain).help("在主窗口继续编辑").accessibilityLabel("在主窗口继续编辑")
             }
-            if app.api == nil {
-                HStack {
-                    Text("草稿会保留在这台 Mac 上。")
-                    Spacer()
-                    Button("连接 Memos") { app.onSettings?() }
-                }.font(.callout).foregroundStyle(.secondary)
-            }
+            Menu {
+                Button("打开 Memos") { app.onLibrary?() }
+                Button("连接设置…") { app.onSettings?() }
+                Divider()
+                Button("退出 Memos") { NSApp.terminate(nil) }
+            } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("更多")
+        }.foregroundStyle(.secondary).padding(.horizontal, 18).frame(height: 48)
+            .background(Theme.paper)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 12) {
             HStack(spacing: 12) {
-                Button { ImageImport.choose(receive: app.addImage, fail: { app.composerError = $0 }) } label: {
-                    Image(systemName: "photo.badge.plus")
-                }.buttonStyle(.plain).help("添加图片，也可以直接粘贴或拖入").disabled(app.isSaving)
-                Text(app.isSaving ? app.saveStatus : "Markdown · #标签 · 粘贴图片")
-                    .font(.caption).foregroundStyle(.secondary)
+                Label("私人记录", systemImage: "book.closed.fill").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.accent)
+                Button { ImageImport.choose(receive: app.addImage, fail: { app.composerError = $0 }) } label: { Image(systemName: "photo") }
+                    .buttonStyle(.plain).help("添加图片，也可以粘贴或拖入").disabled(!canEdit)
                 Spacer()
+                if compact { Button("打开") { app.continueDraftInLibrary() }.help("在主窗口继续，不会提交草稿") }
                 if app.isSaving { ProgressView().controlSize(.small) }
-                Button(app.isSaving ? "保存中…" : "保存") { Task { await app.submit(showMenuBarFeedback: compact) } }
+                Button(app.isSaving ? "保存中…" : "保存", action: save)
                     .buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command)
                     .disabled(!app.canWrite || !app.draft.hasContent || app.isSaving)
             }
             HStack {
-                Text(app.storageError != nil ? "草稿保存遇到问题" : app.isSaving ? "正在保存到 Memos" : "草稿自动保留在这台 Mac")
+                Text(app.storageError != nil ? "草稿保存失败" : app.isSaving ? app.saveStatus : "草稿已保留在本机")
                 Spacer()
-                Text(compact ? "⌘ ↵ 保存 · esc 收起" : "⌘ ↵ 保存")
-            }.font(.system(size: 10)).foregroundStyle(.tertiary)
-        }.padding(compact ? 20 : 30)
-            .frame(width: compact ? 440 : nil)
-            .frame(maxWidth: compact ? nil : .infinity, maxHeight: compact ? nil : .infinity)
-            .tint(Theme.accent)
-            .task { await app.refreshTags() }
+                Text("⌘ ↵ 保存")
+            }.font(.system(size: 10)).foregroundStyle(.secondary)
+        }.padding(.horizontal, 18).padding(.vertical, 14).background(Theme.paper)
     }
+
+    @ViewBuilder private var feedback: some View {
+        if let error = app.storageError ?? app.composerError {
+            ScrollView { ErrorNotice(message: error) }.frame(maxHeight: 68).padding(.bottom, 8)
+        }
+        if app.storageError == nil, let failure = app.saveFailure, app.composerError == failure.message, !app.isSaving {
+            switch failure.action {
+            case .settings: Button("打开连接设置") { app.onSettings?() }.padding(.bottom, 8)
+            case .library: Button("查看所有记录") { app.onLibrary?() }.padding(.bottom, 8)
+            case .retry: Button("重试保存", action: save).disabled(!app.canWrite).padding(.bottom, 8)
+            }
+        }
+        if app.api == nil {
+            HStack { Text("连接后可保存到 Memos").foregroundStyle(.secondary); Spacer(); Button("连接") { app.onSettings?() } }
+                .font(.caption).padding(.bottom, 12)
+        }
+    }
+    private func save() { Task { await app.submit(showMenuBarFeedback: compact) } }
 }

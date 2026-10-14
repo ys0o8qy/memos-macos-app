@@ -15,6 +15,8 @@ final class AppStore: ObservableObject {
     @Published var draft = Draft() { didSet { persistDraft() } }
     @Published var memos: [Memo] = []
     @Published var lastCreatedMemo: Memo?
+    @Published var librarySelection: String?
+    @Published var libraryComposing = false
     @Published var listError: String?
     @Published var composerError: String?
     @Published var storageError: String?
@@ -199,6 +201,12 @@ final class AppStore: ObservableObject {
             saveFailure = failure; composerError = failure.message
             if showMenuBarFeedback { onSaveFailed?() }
         }
+    }
+
+    func continueDraftInLibrary() {
+        librarySelection = nil
+        libraryComposing = true
+        onLibrary?()
     }
 
     func editor(for memo: Memo) -> EditorModel {

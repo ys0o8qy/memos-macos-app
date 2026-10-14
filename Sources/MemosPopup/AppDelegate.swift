@@ -19,9 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         installMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Memos 随手记")
+            button.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Memos 快速记录")
             button.image?.isTemplate = true
-            button.toolTip = "Memos · 随手记"
+            button.toolTip = "Memos · 快速记录"
             button.target = self; button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: ComposerView(app: store, close: { [weak self] in self?.closePopover(restoreFocus: true) }))
+        popover.contentSize = NSSize(width: 440, height: 420)
         store.onSettings = { [weak self] in self?.showSettings() }
         store.onLibrary = { [weak self] in self?.showLibrary() }
         store.onCompose = { [weak self] in self?.showPopover() }
@@ -110,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if library == nil {
-            let window = makeWindow(title: "Memos · 所有记录", size: NSSize(width: 1120, height: 720))
+            let window = makeWindow(title: "Memos", size: NSSize(width: 1120, height: 720))
             window.contentViewController = NSHostingController(rootView: LibraryView(app: store))
             window.setFrameAutosaveName("MemosLibrary")
             library = window

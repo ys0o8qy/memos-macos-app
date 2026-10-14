@@ -251,21 +251,29 @@ final class AppTests: XCTestCase {
         app.memos = [Memo(name: "memos/one", content: "# 留住一个好想法\n\n今天的灵感，值得记下来。", createTime: "2026-09-18T02:30:00Z")]
         let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".build/validation/renders", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 540), output: output.appendingPathComponent("composer.png"))
+        try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 420), output: output.appendingPathComponent("composer.png"))
         try render(LibraryView(app: app), size: NSSize(width: 960, height: 640), output: output.appendingPathComponent("library.png"))
         try render(ComposerView(app: app, close: {}, compact: false), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("full-composer.png"))
         try render(MemoDetail(app: app, editor: app.editor(for: app.memos[0])), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("detail.png"))
+        try render(MarkdownPreview(content: ReadingTests.sample).padding(28), size: NSSize(width: 620, height: 1100), output: output.appendingPathComponent("markdown-dark.png"))
+        try render(MarkdownPreview(content: ReadingTests.sample).padding(28), size: NSSize(width: 620, height: 1100), output: output.appendingPathComponent("markdown-light.png"), light: true)
+        try render(LibraryView(app: app), size: NSSize(width: 1120, height: 720), output: output.appendingPathComponent("library-light.png"), light: true)
+        app.composerError = "无法连接服务器，请检查网络后重试。草稿已保留在本机。"
+        try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 420), output: output.appendingPathComponent("popup-error-light.png"), light: true)
         try render(SettingsView(app: app), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("settings.png"))
     }
 
-    @MainActor private func render<V: View>(_ view: V, size: NSSize, output: URL) throws {
-        let host = NSHostingView(rootView: view.background(Theme.canvas))
+    @MainActor private func render<V: View>(_ view: V, size: NSSize, output: URL, light: Bool = false) throws {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height, alignment: .topLeading).background(Theme.paper).environment(\.colorScheme, light ? .light : .dark))
+        host.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         window.contentView = host
         host.frame = NSRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(host.bounds.size, size, "Render must preserve the requested viewport")
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
