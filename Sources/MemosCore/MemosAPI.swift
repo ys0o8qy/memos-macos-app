@@ -85,6 +85,11 @@ public final class MemosAPI: @unchecked Sendable {
 
     public func get(name: String) async throws -> Memo { try await decode(Memo.self, request(path: name)) }
 
+    public func tagCounts(user: String) async throws -> [String: Int] {
+        struct Stats: Decodable { var tagCount: [String: Int]? }
+        return try await decode(Stats.self, request(path: user + ":getStats")).tagCount ?? [:]
+    }
+
     public func upload(image: LocalImage, data: Data) async throws -> Attachment {
         struct Body: Encodable { var filename: String; var type: String; var content: Data }
         let body = try JSONEncoder().encode(Body(filename: image.filename, type: image.mimeType, content: data))

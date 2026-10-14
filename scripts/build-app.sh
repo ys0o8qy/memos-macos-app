@@ -25,6 +25,7 @@ if [[ ${#binaries[@]} -eq 1 ]]; then
 else
   lipo -create "${binaries[@]}" -output "$app/Contents/MacOS/MemosPopup"
 fi
+cp -R Resources/ThirdParty "$app/Contents/Resources/"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$app/Contents/Info.plist"

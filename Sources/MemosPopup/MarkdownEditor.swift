@@ -51,19 +51,59 @@ enum ImageImport {
 }
 
 final class ImageTextView: NSTextView {
+    var active = true
+    private let history = UndoManager()
+    override var undoManager: UndoManager? { history }
+
+    @objc func undo(_ sender: Any?) {
+        guard active, isEditable, !hasMarkedText(), history.canUndo else { return }
+        history.undo()
+    }
+    @objc func redo(_ sender: Any?) {
+        guard active, isEditable, !hasMarkedText(), history.canRedo else { return }
+        history.redo()
+    }
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(undo(_:)) { return active && isEditable && !hasMarkedText() && history.canUndo }
+        if menuItem.action == #selector(redo(_:)) { return active && isEditable && !hasMarkedText() && history.canRedo }
+        return super.validateMenuItem(menuItem)
+    }
+
+    func replaceFromModel(_ value: String) {
+        guard string != value, !hasMarkedText() else { return }
+        // A submitted/new draft must never be resurrected by undoing an old edit.
+        history.removeAllActions()
+        string = value
+        setSelectedRange(NSRange(location: min(selectedRange().location, (value as NSString).length), length: 0))
+    }
     // Kept injectable so tests exercise the actual paste command using an isolated pasteboard.
     var imagePasteboard: NSPasteboard = .general
     var receiveImage: ((Data, String, String) -> Void)?
     var onError: ((String) -> Void)?
     var onSubmit: (() -> Void)?
     var onEscape: (() -> Void)?
+    weak var tagCompletion: TagCompletionController?
+    override func keyDown(with event: NSEvent) {
+        if tagCompletion?.handle(event, in: self) == true { return }
+        super.keyDown(with: event)
+        tagCompletion?.update(in: self)
+    }
+    override func didChangeText() {
+        super.didChangeText()
+        tagCompletion?.update(in: self)
+    }
     override func paste(_ sender: Any?) {
         guard isEditable else { return }
         if ImageImport.pasteboard(imagePasteboard, receive: { [weak self] in self?.receiveImage?($0, $1, $2) }, fail: { [weak self] in self?.onError?($0) }) { return }
         super.pasteAsPlainText(sender)
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard active, !isHiddenOrHasHiddenAncestor else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if modifiers == .command { undo(nil); return true }
+            if modifiers == [.command, .shift] { redo(nil); return true }
+        }
         if modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "v" {
             paste(nil)
             return true
@@ -72,10 +112,14 @@ final class ImageTextView: NSTextView {
             if !hasMarkedText() { onSubmit?() }
             return true
         }
+        if NativeTextActions.handleFind(event, in: self) { return true }
         return super.performKeyEquivalent(with: event)
     }
     override func cancelOperation(_ sender: Any?) {
-        if hasMarkedText() { super.cancelOperation(sender) } else { onEscape?() }
+        if hasMarkedText() { super.cancelOperation(sender) }
+        else if let tagCompletion, !tagCompletion.suggestions.isEmpty { tagCompletion.dismiss() }
+        else if enclosingScrollView?.isFindBarVisible == true { NativeTextActions.find(.hideFindInterface, in: self) }
+        else { onEscape?() }
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard isEditable else { return [] }
@@ -108,6 +152,9 @@ struct MarkdownEditor: NSViewRepresentable {
     @Binding var text: String
     var enabled = true
     var autofocus = false
+    var active = true
+    var completion: TagCompletionController? = nil
+    var tags: [String] = []
     var onImage: (Data, String, String) -> Void
     var onError: (String) -> Void
     var onSubmit: () -> Void
@@ -136,13 +183,14 @@ struct MarkdownEditor: NSViewRepresentable {
         view.textColor = .labelColor
         view.insertionPointColor = .controlAccentColor
         view.isSelectable = true
+        view.usesFindBar = true
+        view.isIncrementalSearchingEnabled = true
         view.drawsBackground = false
         view.setAccessibilityLabel("记录内容")
         view.delegate = context.coordinator
         view.registerForDraggedTypes([.fileURL, .png, .tiff])
         scroll.documentView = view
         update(view, context: context)
-        if autofocus { DispatchQueue.main.async { view.window?.makeFirstResponder(view) } }
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -151,15 +199,44 @@ struct MarkdownEditor: NSViewRepresentable {
         update(view, context: context)
     }
     private func update(_ view: ImageTextView, context: Context) {
-        if view.string != text && !view.hasMarkedText() { view.string = text }
-        view.isEditable = enabled
+        view.replaceFromModel(text)
+        view.active = active
+        view.isEditable = enabled && active
+        if !active {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, !view.active else { return }
+                view.tagCompletion?.dismiss()
+                if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+            }
+        } else if autofocus && !context.coordinator.wasActive {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, view.active else { return }
+                view.window?.makeFirstResponder(view)
+            }
+        }
+        context.coordinator.wasActive = active
         view.receiveImage = onImage; view.onError = onError; view.onSubmit = onSubmit; view.onEscape = onEscape
+        view.tagCompletion = completion
+        completion?.tags = tags
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            if view.window?.firstResponder === view { view.tagCompletion?.update(in: view) }
+            else { view.tagCompletion?.hide() }
+        }
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MarkdownEditor
+        var wasActive = false
         init(_ parent: MarkdownEditor) { self.parent = parent }
         func textDidChange(_ notification: Notification) {
             if let view = notification.object as? NSTextView { parent.text = view.string }
+        }
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let view = notification.object as? ImageTextView else { return }
+            DispatchQueue.main.async { [weak view] in
+                guard let view, view.window?.firstResponder === view else { return }
+                view.tagCompletion?.update(in: view)
+            }
         }
     }
 }

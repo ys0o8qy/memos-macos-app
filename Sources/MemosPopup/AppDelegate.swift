@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     let store = AppStore()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private let saveFeedback = SaveFeedbackController()
     private var library: NSWindow?
     private var settings: NSWindow?
     private var previousApp: NSRunningApplication?
@@ -18,35 +19,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         installMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Memos 随手记")
+            button.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Memos 快速记录")
             button.image?.isTemplate = true
-            button.toolTip = "Memos · 随手记"
-            button.target = self; button.action = #selector(togglePopover)
+            button.toolTip = "Memos · 快速记录"
+            button.target = self; button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: ComposerView(app: store, close: { [weak self] in self?.closePopover(restoreFocus: true) }))
+        popover.contentSize = NSSize(width: 440, height: 420)
         store.onSettings = { [weak self] in self?.showSettings() }
         store.onLibrary = { [weak self] in self?.showLibrary() }
         store.onCompose = { [weak self] in self?.showPopover() }
-        store.onSaved = { [weak self] in self?.closePopover(restoreFocus: true) }
+        store.onSaved = { [weak self] in
+            guard let self else { return }
+            self.closePopover(restoreFocus: true)
+            if let button = self.statusItem.button { self.saveFeedback.show(below: button) }
+        }
+        store.onSaveFailed = { [weak self] in
+            guard let self, !self.popover.isShown, let button = self.statusItem.button else { return }
+            self.saveFeedback.show(below: button, message: "保存未完成，请打开 Memos 查看", success: false)
+        }
         installHotkeyHandler()
         store.shortcuts.start()
         if store.testing { showLibrary() }
         else if store.api == nil { showSettings() }
     }
 
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            saveFeedback.dismiss()
+            closePopover(restoreFocus: false)
+            let menu = NSMenu()
+            menu.addItem(withTitle: "所有记录", action: #selector(showLibrary), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "连接设置…", action: #selector(showSettings), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "退出 Memos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q").target = NSApp
+            // Show a context menu without assigning statusItem.menu, which would also replace left-click behavior.
+            menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.minX, y: sender.bounds.minY), in: sender)
+        } else {
+            togglePopover()
+        }
+    }
+
     @objc func togglePopover() {
         if popover.isShown { closePopover(restoreFocus: true) } else { showPopover() }
     }
     func showPopover() {
+        saveFeedback.dismiss()
         guard let button = statusItem.button else { return }
         if !popover.isShown { previousApp = NSWorkspace.shared.frontmostApplication }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         focusComposer()
+        Task { await store.refreshTags() }
     }
     func popoverDidShow(_ notification: Notification) { focusComposer() }
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -60,11 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.makeKey()
             window.makeFirstResponder(editor)
             editor.needsDisplay = true
-            editor.scrollRangeToVisible(editor.selectedRange())
         }
     }
-    private func findEditor(_ view: NSView) -> ImageTextView? {
-        if let editor = view as? ImageTextView { return editor }
+    private func findEditor(_ view: NSView) -> NSTextView? {
+        if let editor = view as? ImageTextView, editor.active, !editor.isHiddenOrHasHiddenAncestor { return editor }
+        if let reader = view as? ReadingTextView, reader.active, !reader.isHiddenOrHasHiddenAncestor { return reader }
         for child in view.subviews { if let found = findEditor(child) { return found } }
         return nil
     }
@@ -77,10 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         previousApp = nil
     }
     @objc func showLibrary() {
+        saveFeedback.dismiss()
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if library == nil {
-            let window = makeWindow(title: "Memos · 所有记录", size: NSSize(width: 960, height: 680))
+            let window = makeWindow(title: "Memos", size: NSSize(width: 1120, height: 720))
             window.contentViewController = NSHostingController(rootView: LibraryView(app: store))
             window.setFrameAutosaveName("MemosLibrary")
             library = window
@@ -90,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         Task { await store.refresh() }
     }
     @objc func showSettings() {
+        saveFeedback.dismiss()
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if settings == nil {
@@ -144,6 +176,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let edit = NSMenu(title: "编辑")
         for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key)
+        }
+        let redo = edit.insertItem(withTitle: "重做", action: NSSelectorFromString("redo:"), keyEquivalent: "z", at: 1)
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        for (title, action, key, modifiers) in [
+            ("查找正文…", NSTextFinder.Action.showFindInterface, "f", NSEvent.ModifierFlags.command),
+            ("查找下一个", .nextMatch, "g", .command),
+            ("查找上一个", .previousMatch, "g", [.command, .shift])
+        ] {
+            let item = edit.addItem(withTitle: title, action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: key)
+            item.tag = action.rawValue
+            item.keyEquivalentModifierMask = modifiers
         }
         editItem.submenu = edit; menu.addItem(editItem)
         NSApp.mainMenu = menu

@@ -47,6 +47,8 @@ struct SettingsView: View {
                     .disabled(app.isConnecting || app.anySaving || address.isEmpty)
             }
             Divider()
+            LoginItemSettings(controller: app.loginItem)
+            Divider()
             ShortcutSettings(controller: app.shortcuts)
             Text("关闭窗口后应用仍留在菜单栏。新记录默认私有，离线时保留草稿，联网后手动保存。")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -14,19 +14,27 @@ final class AppStore: ObservableObject {
     @Published var connection: Connection?
     @Published var draft = Draft() { didSet { persistDraft() } }
     @Published var memos: [Memo] = []
+    @Published var lastCreatedMemo: Memo?
+    @Published var librarySelection: String?
+    @Published var libraryComposing = false
     @Published var listError: String?
     @Published var composerError: String?
     @Published var storageError: String?
     @Published var isSaving = false
+    @Published var saveStatus = "正在保存…"
+    @Published var saveFailure: SaveFailure?
     @Published var isLoading = false
     @Published var isConnecting = false
     @Published var nextPage = ""
     @Published var search = ""
     let shortcuts: ShortcutController
+    let loginItem: LoginItemController
+    let tagCatalog = TagCatalog()
     var onSettings: (() -> Void)?
     var onLibrary: (() -> Void)?
     var onCompose: (() -> Void)?
     var onSaved: (() -> Void)?
+    var onSaveFailed: (() -> Void)?
     var api: MemosAPI?
     var drafts: DraftStore?
     private var token = ""
@@ -42,6 +50,7 @@ final class AppStore: ObservableObject {
         let args = ProcessInfo.processInfo.arguments
         testing = testRoot != nil || args.contains("--ui-testing")
         shortcuts = ShortcutController(defaults: testing ? nil : .standard)
+        loginItem = LoginItemController(testing: testing)
         if testing {
             root = testRoot ?? URL(fileURLWithPath: ProcessInfo.processInfo.environment["MEMOS_TEST_DATA"] ?? "/tmp/memos-popup-ui-test", isDirectory: true)
         } else {
@@ -68,6 +77,7 @@ final class AppStore: ObservableObject {
             draft = try drafts?.load(key: "new") ?? Draft()
             readyToPersist = true
         } catch { storageError = error.localizedDescription }
+        tagCatalog.use(drafts)
     }
 
     private func persistDraft() {
@@ -104,9 +114,16 @@ final class AppStore: ObservableObject {
         }
         readyToPersist = false
         connection = settings; token = candidateToken; api = candidate; drafts = newStore; draft = newDraft
-        editors = [:]; memos = []; nextPage = ""; storageError = nil; composerError = nil
+        editors = [:]; memos = []; lastCreatedMemo = nil; search = ""; nextPage = ""; storageError = nil; composerError = nil; saveFailure = nil
+        tagCatalog.use(newStore)
         readyToPersist = true
+        Task { await self.refreshTags(force: true) }
         await refresh()
+    }
+
+    func refreshTags(force: Bool = false) async {
+        guard let api, let connection else { return }
+        await tagCatalog.refresh(api: api, user: connection.user.name, force: force)
     }
 
     func refresh(more: Bool = false) async {
@@ -149,25 +166,47 @@ final class AppStore: ObservableObject {
         if storageError == nil { drafts?.removeImages([image]) }
     }
 
-    func submit() async {
+    func submit(showMenuBarFeedback: Bool = true) async {
         guard canWrite, !isSaving, draft.hasContent, let api, let drafts else { return }
-        isSaving = true; composerError = nil
+        isSaving = true; composerError = nil; saveFailure = nil
         let snapshot = draft
-        defer { isSaving = false }
+        var uploading = false
+        var remoteSaved = false
+        defer { isSaving = false; saveStatus = "正在保存…" }
         do {
             var attachments: [Attachment] = []
-            for image in snapshot.images {
+            for (index, image) in snapshot.images.enumerated() {
+                uploading = true
+                saveStatus = "正在上传图片 \(index + 1)/\(snapshot.images.count)…"
                 attachments.append(try await api.upload(image: image, data: drafts.imageData(image)))
             }
-            _ = try await api.create(id: snapshot.id, content: snapshot.content, attachments: attachments)
+            uploading = false; saveStatus = "正在保存…"
+            let created = try await api.create(id: snapshot.id, content: snapshot.content, attachments: attachments)
+            remoteSaved = true
             // Commit an empty draft before cleaning files or closing the panel.
             let empty = Draft()
             try drafts.save(empty, key: "new")
             draft = empty
             drafts.removeImages(snapshot.images)
-            onSaved?()
+            if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                memos.removeAll { $0.name == created.name }
+                memos.insert(created, at: 0)
+            }
+            lastCreatedMemo = created
+            if showMenuBarFeedback { onSaved?() }
             Task { await self.refresh() }
-        } catch { composerError = error.localizedDescription }
+            Task { await self.refreshTags(force: true) }
+        } catch {
+            let failure = SaveFailure.describe(error, uploading: uploading, remoteSaved: remoteSaved)
+            saveFailure = failure; composerError = failure.message
+            if showMenuBarFeedback { onSaveFailed?() }
+        }
+    }
+
+    func continueDraftInLibrary() {
+        librarySelection = nil
+        libraryComposing = true
+        onLibrary?()
     }
 
     func editor(for memo: Memo) -> EditorModel {
@@ -222,7 +261,8 @@ final class EditorModel: ObservableObject {
         self.conflict = nil; error = nil
     }
     func save() async {
-        guard !isSaving, !storageFailed, app.canWrite, let api = app.api, let store = app.drafts else { return }
+        guard !isSaving, !storageFailed, conflict == nil, draft.isModified, draft.hasContent,
+              app.canWrite, let api = app.api, let store = app.drafts else { return }
         isSaving = true; error = nil; saved = false
         let snapshot = draft
         defer { isSaving = false }
@@ -243,6 +283,7 @@ final class EditorModel: ObservableObject {
             ready = false; draft = Draft(memo: memo); ready = true
             store.removeImages(snapshot.images)
             saved = true
+            Task { await app.refreshTags(force: true) }
             await app.refresh()
         } catch { self.error = error.localizedDescription }
     }

@@ -2,7 +2,20 @@ import SwiftUI
 import MemosCore
 
 enum Theme {
-    static let accent = Color(red: 0.21, green: 0.44, blue: 0.35)
+    static let accent = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.38, green: 0.72, blue: 0.90, alpha: 1)
+            : NSColor(red: 0.05, green: 0.43, blue: 0.63, alpha: 1)
+    })
+    static let paper = Color(nsColor: .textBackgroundColor)
+    static let sidebar = adaptive(light: 0.965, dark: 0.105)
+    static let field = adaptive(light: 0.955, dark: 0.16)
+    private static func adaptive(light: CGFloat, dark: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            NSColor(white: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light, alpha: 1)
+        })
+    }
+    static let separator = Color(nsColor: .separatorColor)
     static let canvas = Color(nsColor: .windowBackgroundColor)
 }
 
@@ -76,26 +89,5 @@ struct RemoteAttachment: View {
                 if let image { Image(nsImage: image).resizable().scaledToFit() }
             }.padding(20).frame(minWidth: 500, idealWidth: 720, minHeight: 400, idealHeight: 600)
         }
-    }
-}
-
-struct MarkdownPreview: View {
-    var content: String
-    var body: some View {
-        // Block-level Markdown using native text, without executing HTML or fetching remote embeds.
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(content.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                if line.hasPrefix("### ") { inline(String(line.dropFirst(4))).font(.headline) }
-                else if line.hasPrefix("## ") { inline(String(line.dropFirst(3))).font(.title3.bold()) }
-                else if line.hasPrefix("# ") { inline(String(line.dropFirst(2))).font(.title2.bold()) }
-                else if line.hasPrefix("- [ ] ") { HStack(alignment: .top) { Image(systemName: "square"); inline(String(line.dropFirst(6))) } }
-                else if line.hasPrefix("- [x] ") { HStack(alignment: .top) { Image(systemName: "checkmark.square"); inline(String(line.dropFirst(6))) } }
-                else if line.hasPrefix("- ") { HStack(alignment: .top) { Text("•"); inline(String(line.dropFirst(2))) } }
-                else { inline(line.isEmpty ? " " : line) }
-            }
-        }.font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private func inline(_ string: String) -> Text {
-        Text((try? AttributedString(markdown: string, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(string))
     }
 }
