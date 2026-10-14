@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         closePopover(restoreFocus: false)
         NSApp.setActivationPolicy(.regular)
         if library == nil {
-            let window = makeWindow(title: "Memos · 所有记录", size: NSSize(width: 960, height: 680))
+            let window = makeWindow(title: "Memos · 所有记录", size: NSSize(width: 1120, height: 720))
             window.contentViewController = NSHostingController(rootView: LibraryView(app: store))
             window.setFrameAutosaveName("MemosLibrary")
             library = window

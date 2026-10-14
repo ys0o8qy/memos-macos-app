@@ -51,6 +51,7 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(app.draft, original)
         XCTAssertEqual(try app.drafts?.load(key: "new"), original)
         XCTAssertFalse(app.isSaving)
+        XCTAssertNil(app.lastCreatedMemo)
         let restored = AppStore(testRoot: root)
         XCTAssertEqual(restored.draft, original)
         var closed = false
@@ -67,11 +68,29 @@ final class AppTests: XCTestCase {
         }
         await app.submit()
         XCTAssertTrue(closed)
+        XCTAssertEqual(app.lastCreatedMemo?.name, "memos/\(original.id)")
+        XCTAssertEqual(app.lastCreatedMemo?.content, original.content)
         XCTAssertNil(app.composerError)
         XCTAssertFalse(app.draft.hasContent)
         XCTAssertNotEqual(app.draft.id, original.id)
         XCTAssertEqual(try app.drafts?.load(key: "new"), app.draft)
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.drafts!.imageURL(original.images[0]).path))
+    }
+
+    @MainActor func testWindowSavePublishesEntryWithoutMenuBarFocusFeedback() async throws {
+        let root = try temp(); defer { try? FileManager.default.removeItem(at: root) }
+        let app = try app(root: root)
+        app.draft.content = "窗口中的新记录"
+        app.onSaved = { XCTFail("Window save must not close or restore focus through the menu bar") }
+        AppStub.handler = { request in
+            if request.httpMethod == "POST" {
+                return (200, try JSONEncoder().encode(Memo(name: "memos/window", content: "窗口中的新记录")))
+            }
+            return (200, Data("{\"memos\":[]}".utf8))
+        }
+        await app.submit(showMenuBarFeedback: false)
+        XCTAssertEqual(app.lastCreatedMemo?.name, "memos/window")
+        XCTAssertFalse(app.draft.hasContent)
     }
 
     @MainActor func testImagePasteboardDecodingAndTextFallback() async throws {
@@ -174,6 +193,10 @@ final class AppTests: XCTestCase {
         XCTAssertNotNil(editor.conflict)
         XCTAssertEqual(editor.draft.content, "my changes")
         XCTAssertEqual(try app.drafts?.load(key: "memos/one")?.content, "my changes")
+        // Keyboard submission must obey the same conflict gate as the disabled button.
+        await editor.save()
+        XCTAssertEqual(writes, 0)
+        XCTAssertNotNil(editor.conflict)
     }
 
     @MainActor func testRefreshUpdatesCleanEditorButPreservesUnsavedChanges() async throws {
@@ -188,6 +211,37 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(editor.draft.content, "local unsaved")
     }
 
+    func testTimelineGroupsLocalMonthsAndKeepsUnknownDatesLast() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        let entries = [
+            Memo(name: "memos/old", content: "旧记录", createTime: "2026-09-30T15:59:00Z"),
+            Memo(name: "memos/unknown", content: "无日期", createTime: "invalid"),
+            Memo(name: "memos/new", content: "新记录", createTime: "2026-09-30T16:01:00Z"),
+            Memo(name: "memos/newer", content: "更新记录", createTime: "2026-10-02T00:00:00Z")
+        ]
+        let sections = JournalSection.sections(entries, calendar: calendar)
+        XCTAssertEqual(sections.count, 3)
+        XCTAssertEqual(sections[0].memos.map(\.name), ["memos/newer", "memos/new"])
+        XCTAssertEqual(sections[1].memos.map(\.name), ["memos/old"])
+        XCTAssertNil(sections[2].month)
+        XCTAssertTrue(JournalSection.sections([]).isEmpty)
+    }
+
+    @MainActor func testSwitchingEntriesRestoresIndependentLocalEdits() throws {
+        let root = try temp(); defer { try? FileManager.default.removeItem(at: root) }
+        let app = try app(root: root)
+        let first = Memo(name: "memos/first", content: "原文")
+        let second = Memo(name: "memos/second", content: "另一条")
+        app.editor(for: first).draft.content = "尚未提交的修改"
+        app.editor(for: second).draft.content = "另一份修改"
+        app.draft.content = "正在新建的草稿"
+        let restored = try self.app(root: root)
+        XCTAssertEqual(restored.editor(for: first).draft.content, "尚未提交的修改")
+        XCTAssertEqual(restored.editor(for: second).draft.content, "另一份修改")
+        XCTAssertEqual(restored.draft.content, "正在新建的草稿")
+    }
+
     @MainActor func testNativeViewsRenderAtMinimumSizes() async throws {
         let root = try temp(); defer { try? FileManager.default.removeItem(at: root) }
         _ = NSApplication.shared
@@ -195,10 +249,12 @@ final class AppTests: XCTestCase {
         app.draft.content = "记下一个小小的发现。\n\n支持 Markdown，也可以粘贴图片。 #日常"
         app.addImage(data: png(), filename: "test.png", mime: "image/png")
         app.memos = [Memo(name: "memos/one", content: "# 留住一个好想法\n\n今天的灵感，值得记下来。", createTime: "2026-09-18T02:30:00Z")]
-        let output = URL(fileURLWithPath: "/tmp/memos-popup-renders", isDirectory: true)
+        let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".build/validation/renders", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 460), output: output.appendingPathComponent("composer.png"))
+        try render(ComposerView(app: app, close: {}), size: NSSize(width: 440, height: 540), output: output.appendingPathComponent("composer.png"))
         try render(LibraryView(app: app), size: NSSize(width: 960, height: 640), output: output.appendingPathComponent("library.png"))
+        try render(ComposerView(app: app, close: {}, compact: false), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("full-composer.png"))
+        try render(MemoDetail(app: app, editor: app.editor(for: app.memos[0])), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("detail.png"))
         try render(SettingsView(app: app), size: NSSize(width: 480, height: 640), output: output.appendingPathComponent("settings.png"))
     }
 
@@ -207,6 +263,8 @@ final class AppTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         host.layoutSubtreeIfNeeded()
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

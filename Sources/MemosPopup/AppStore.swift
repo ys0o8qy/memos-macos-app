@@ -14,6 +14,7 @@ final class AppStore: ObservableObject {
     @Published var connection: Connection?
     @Published var draft = Draft() { didSet { persistDraft() } }
     @Published var memos: [Memo] = []
+    @Published var lastCreatedMemo: Memo?
     @Published var listError: String?
     @Published var composerError: String?
     @Published var storageError: String?
@@ -111,7 +112,7 @@ final class AppStore: ObservableObject {
         }
         readyToPersist = false
         connection = settings; token = candidateToken; api = candidate; drafts = newStore; draft = newDraft
-        editors = [:]; memos = []; nextPage = ""; storageError = nil; composerError = nil; saveFailure = nil
+        editors = [:]; memos = []; lastCreatedMemo = nil; search = ""; nextPage = ""; storageError = nil; composerError = nil; saveFailure = nil
         tagCatalog.use(newStore)
         readyToPersist = true
         Task { await self.refreshTags(force: true) }
@@ -163,7 +164,7 @@ final class AppStore: ObservableObject {
         if storageError == nil { drafts?.removeImages([image]) }
     }
 
-    func submit() async {
+    func submit(showMenuBarFeedback: Bool = true) async {
         guard canWrite, !isSaving, draft.hasContent, let api, let drafts else { return }
         isSaving = true; composerError = nil; saveFailure = nil
         let snapshot = draft
@@ -178,20 +179,25 @@ final class AppStore: ObservableObject {
                 attachments.append(try await api.upload(image: image, data: drafts.imageData(image)))
             }
             uploading = false; saveStatus = "正在保存…"
-            _ = try await api.create(id: snapshot.id, content: snapshot.content, attachments: attachments)
+            let created = try await api.create(id: snapshot.id, content: snapshot.content, attachments: attachments)
             remoteSaved = true
             // Commit an empty draft before cleaning files or closing the panel.
             let empty = Draft()
             try drafts.save(empty, key: "new")
             draft = empty
             drafts.removeImages(snapshot.images)
-            onSaved?()
+            if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                memos.removeAll { $0.name == created.name }
+                memos.insert(created, at: 0)
+            }
+            lastCreatedMemo = created
+            if showMenuBarFeedback { onSaved?() }
             Task { await self.refresh() }
             Task { await self.refreshTags(force: true) }
         } catch {
             let failure = SaveFailure.describe(error, uploading: uploading, remoteSaved: remoteSaved)
             saveFailure = failure; composerError = failure.message
-            onSaveFailed?()
+            if showMenuBarFeedback { onSaveFailed?() }
         }
     }
 
@@ -247,7 +253,8 @@ final class EditorModel: ObservableObject {
         self.conflict = nil; error = nil
     }
     func save() async {
-        guard !isSaving, !storageFailed, app.canWrite, let api = app.api, let store = app.drafts else { return }
+        guard !isSaving, !storageFailed, conflict == nil, draft.isModified, draft.hasContent,
+              app.canWrite, let api = app.api, let store = app.drafts else { return }
         isSaving = true; error = nil; saved = false
         let snapshot = draft
         defer { isSaving = false }
