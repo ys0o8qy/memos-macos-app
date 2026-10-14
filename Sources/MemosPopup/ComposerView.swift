@@ -16,23 +16,11 @@ struct ComposerView: View {
                     Text(Date.now, format: .dateTime.month(.wide).day().weekday(.wide))
                         .font(.system(size: 23, weight: .semibold)).padding(.horizontal, 24).padding(.top, 24)
                 }
-                if previewing {
-                    ScrollView {
-                        MarkdownPreview(content: app.draft.content).padding(24)
-                            .frame(maxWidth: 680, alignment: .leading).frame(maxWidth: .infinity)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ZStack(alignment: .topLeading) {
-                        if app.draft.content.isEmpty {
-                            Text("写下此刻的想法…").font(.system(size: 15)).foregroundStyle(.tertiary)
-                                .padding(.leading, 17).padding(.top, 14).allowsHitTesting(false)
-                        }
-                        TaggedMarkdownEditor(text: $app.draft.content, catalog: app.tagCatalog,
-                            enabled: canEdit, autofocus: true, onImage: app.addImage,
-                            onError: { app.composerError = $0 }, onSubmit: save, onEscape: close)
-                    }.padding(.horizontal, compact ? 8 : 12).padding(.top, compact ? 4 : 14)
-                        .frame(minHeight: 120, maxHeight: .infinity)
-                }
+                MarkdownSurface(text: $app.draft.content, catalog: app.tagCatalog, editing: !previewing,
+                    enabled: canEdit,
+                    editorInsets: EdgeInsets(top: compact ? 4 : 14, leading: compact ? 8 : 12, bottom: 0, trailing: compact ? 8 : 12),
+                    placeholder: "写下此刻的想法…", onImage: app.addImage,
+                    onError: { app.composerError = $0 }, onSubmit: save, onEscape: close)
                 if !app.draft.images.isEmpty || app.storageError != nil || app.composerError != nil || app.api == nil {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -67,7 +55,8 @@ struct ComposerView: View {
                 Spacer()
             }
             Button { previewing.toggle() } label: { Image(systemName: previewing ? "pencil" : "eye") }
-                .buttonStyle(.plain).help(previewing ? "继续编辑" : "预览 Markdown").accessibilityLabel(previewing ? "继续编辑" : "预览 Markdown")
+                .buttonStyle(.plain).keyboardShortcut("e")
+                .help(previewing ? "继续编辑（⌘E）" : "预览 Markdown（⌘E）").accessibilityLabel(previewing ? "继续编辑" : "预览 Markdown")
             if compact {
                 Button { app.continueDraftInLibrary() } label: { Image(systemName: "rectangle.on.rectangle") }
                     .buttonStyle(.plain).help("在主窗口继续编辑").accessibilityLabel("在主窗口继续编辑")

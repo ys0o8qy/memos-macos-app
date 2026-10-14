@@ -82,7 +82,7 @@ ARCHS=arm64 CONFIGURATION=debug bash scripts/build-app.sh
 - 对 API 重定向不自动跟随；外部附件 URL 不携带 Memos Token。
 - 允许 HTTP 地址以支持局域网自建服务；跨公网建议配置 HTTPS。
 
-第一版没有后台离线上传、自动更新、多账号同时登录。预览使用 Swift Markdown 解析 CommonMark / GFM，支持标题、嵌套列表、任务项、引用、代码块、表格、链接和正文图片。代码可复制，宽表格与长代码可横向滚动；HTML 仅显示为文字，不执行。暂不支持公式和 Mermaid；原始 Markdown 会原样保存。
+第一版没有后台离线上传、自动更新、多账号同时登录。预览使用 Swift Markdown 解析 CommonMark / GFM，支持标题、嵌套列表、任务项、引用、代码块、表格、链接和正文图片。正文支持跨段选择、全选和复制，右键可复制整篇 Markdown 或代码块。表格与长代码按正文宽度换行；⌘F 查找当前正文，⇧⌘F 搜索记录；预览切换保留光标与撤销历史；HTML 仅显示为文字，不执行。暂不支持公式和 Mermaid；原始 Markdown 会原样保存。
 
 后续常用浮窗功能的分析与建议优先级见 [Popup 功能规划](docs/POPUP_ROADMAP.md)，文档区分已完成项目与待补充建议。
 

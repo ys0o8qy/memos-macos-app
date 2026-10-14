@@ -104,6 +104,7 @@ struct TaggedMarkdownEditor: View {
     @ObservedObject var catalog: TagCatalog
     var enabled = true
     var autofocus = false
+    var active = true
     var height: CGFloat? = nil
     var onImage: (Data, String, String) -> Void
     var onError: (String) -> Void
@@ -113,7 +114,7 @@ struct TaggedMarkdownEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MarkdownEditor(text: $text, enabled: enabled, autofocus: autofocus,
+            MarkdownEditor(text: $text, enabled: enabled, autofocus: autofocus, active: active,
                 completion: completion, tags: catalog.tags, onImage: onImage, onError: onError,
                 onSubmit: onSubmit, onEscape: onEscape)
                 .frame(height: height)

@@ -135,7 +135,7 @@ struct LibraryView: View {
                 Button(action: newEntry) { Image(systemName: "square.and.pencil") }.buttonStyle(.plain).help("新建记录")
             }.padding(.horizontal, 16).frame(height: 62)
             HStack {
-                Button { searching = true } label: { Image(systemName: "magnifyingglass").foregroundStyle(.secondary) }.buttonStyle(.plain).keyboardShortcut("f").help("搜索记录")
+                Button { searching = true } label: { Image(systemName: "magnifyingglass").foregroundStyle(.secondary) }.buttonStyle(.plain).keyboardShortcut("f", modifiers: [.command, .shift]).help("搜索所有记录（⇧⌘F）")
                 TextField("搜索记录", text: $app.search).textFieldStyle(.plain).focused($searching)
                 if !app.search.isEmpty {
                     Button { app.search = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -225,27 +225,18 @@ struct MemoDetail: View {
                     .keyboardShortcut("e").disabled(editor.isSaving)
             }.padding(.horizontal, 24).frame(height: 62)
             Divider()
-            if editing {
-                TaggedMarkdownEditor(text: $editor.draft.content, catalog: app.tagCatalog,
-                    enabled: !editor.isSaving && !editor.storageFailed, autofocus: true,
-                    onImage: editor.addImage, onError: { editor.error = $0 }, onSubmit: saveChanges)
-                    .padding(12).frame(minHeight: 120, maxHeight: .infinity)
-                attachments(editable: true).padding(.horizontal, 24)
-                LocalImages(images: editor.draft.images, store: app.drafts, remove: editor.removeImage)
-                    .padding(.horizontal, 24).disabled(editor.isSaving)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if let date = editor.draft.originalMemo?.date {
-                            Text(date, format: .dateTime.year().month(.wide).day().weekday(.wide).hour().minute())
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                        MarkdownPreview(content: editor.draft.content, api: app.api, attachments: editor.draft.existingAttachments)
-                        attachments(editable: false)
-                        LocalImages(images: editor.draft.images, store: app.drafts, remove: editor.removeImage).disabled(true)
-                    }.padding(32).frame(maxWidth: 744, alignment: .leading).frame(maxWidth: .infinity)
-                }.frame(maxHeight: .infinity)
+            if let date = editor.draft.originalMemo?.date {
+                Text(date, format: .dateTime.year().month(.wide).day().weekday(.wide).hour().minute())
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.top, 18)
             }
+            MarkdownSurface(text: $editor.draft.content, catalog: app.tagCatalog, editing: editing,
+                enabled: !editor.isSaving && !editor.storageFailed,
+                api: app.api, attachments: editor.draft.existingAttachments,
+                onImage: editor.addImage, onError: { editor.error = $0 }, onSubmit: saveChanges)
+            attachments(editable: editing).padding(.horizontal, 24)
+            LocalImages(images: editor.draft.images, store: app.drafts, remove: editor.removeImage)
+                .padding(.horizontal, 24).disabled(editor.isSaving || !editing)
             if let error = editor.error { ErrorNotice(message: error).padding(.horizontal, 20).padding(.bottom, 8) }
             if let conflict = editor.conflict {
                 VStack(alignment: .leading, spacing: 8) {

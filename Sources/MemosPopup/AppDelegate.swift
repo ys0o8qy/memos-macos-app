@@ -90,11 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.makeKey()
             window.makeFirstResponder(editor)
             editor.needsDisplay = true
-            editor.scrollRangeToVisible(editor.selectedRange())
         }
     }
-    private func findEditor(_ view: NSView) -> ImageTextView? {
-        if let editor = view as? ImageTextView { return editor }
+    private func findEditor(_ view: NSView) -> NSTextView? {
+        if let editor = view as? ImageTextView, editor.active, !editor.isHiddenOrHasHiddenAncestor { return editor }
+        if let reader = view as? ReadingTextView, reader.active, !reader.isHiddenOrHasHiddenAncestor { return reader }
         for child in view.subviews { if let found = findEditor(child) { return found } }
         return nil
     }
@@ -176,6 +176,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let edit = NSMenu(title: "编辑")
         for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key)
+        }
+        let redo = edit.insertItem(withTitle: "重做", action: NSSelectorFromString("redo:"), keyEquivalent: "z", at: 1)
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        for (title, action, key, modifiers) in [
+            ("查找正文…", NSTextFinder.Action.showFindInterface, "f", NSEvent.ModifierFlags.command),
+            ("查找下一个", .nextMatch, "g", .command),
+            ("查找上一个", .previousMatch, "g", [.command, .shift])
+        ] {
+            let item = edit.addItem(withTitle: title, action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: key)
+            item.tag = action.rawValue
+            item.keyEquivalentModifierMask = modifiers
         }
         editItem.submenu = edit; menu.addItem(editItem)
         NSApp.mainMenu = menu
